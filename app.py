@@ -3,9 +3,7 @@ import streamlit as st
 import numpy as np
 import cv2
 from PIL import Image
-
-# ✅ IMPORTANT: use standalone keras for Keras 3 compatibility
-import keras
+import tensorflow as tf  # ✅ use tf.keras (more deploy-friendly on Streamlit Cloud)
 
 # ---------------- Page Settings ----------------
 st.set_page_config(page_title="Skin Lesion Classifier", page_icon="🩺", layout="centered")
@@ -35,18 +33,24 @@ CATEGORY = {
 CLASSES = list(CLASS_NAMES.keys())
 
 BASE_DIR = os.path.dirname(__file__)
-MODEL_KERAS = os.path.join(BASE_DIR, "skin_lesion_model.keras")
-MODEL_H5    = os.path.join(BASE_DIR, "skin_lesion_model.h5")
+MODEL_H5 = os.path.join(BASE_DIR, "skin_lesion_model.h5")   # ✅ recommended for deployment
+MODEL_KERAS = os.path.join(BASE_DIR, "skin_lesion_model.keras")  # optional fallback
 
 # ---------------- Load Model ----------------
 @st.cache_resource
 def get_model():
-    # Try .keras first (best for Keras 3), then fallback to .h5
-    if os.path.exists(MODEL_KERAS):
-        return keras.saving.load_model(MODEL_KERAS, compile=False)
+    """
+    Deployment-safe loader:
+    - Prefer .h5 (more compatible across environments)
+    - Fallback to .keras if .h5 doesn't exist
+    """
     if os.path.exists(MODEL_H5):
-        return keras.saving.load_model(MODEL_H5, compile=False)
-    raise FileNotFoundError("No model file found. Put skin_lesion_model.keras or skin_lesion_model.h5 next to app.py")
+        return tf.keras.models.load_model(MODEL_H5, compile=False)
+    if os.path.exists(MODEL_KERAS):
+        return tf.keras.models.load_model(MODEL_KERAS, compile=False)
+    raise FileNotFoundError(
+        "No model file found. Put skin_lesion_model.h5 (recommended) or skin_lesion_model.keras next to app.py"
+    )
 
 def get_input_size(model):
     shape = model.input_shape
@@ -74,9 +78,9 @@ try:
 except Exception as e:
     st.error("Model could not be loaded.")
     st.write("✅ Fix checklist:")
-    st.write("- Ensure the model file is in the same folder as app.py")
-    st.write("- Ensure requirements.txt matches the deployment stack (TF 2.16.1 + Keras 3.3.3)")
-    st.code(f"Looking for:\n{MODEL_KERAS}\n{MODEL_H5}")
+    st.write("- Ensure `skin_lesion_model.h5` is in the same folder as `app.py`")
+    st.write("- Ensure Streamlit build uses compatible dependencies (TF CPU is recommended on Streamlit Cloud)")
+    st.code(f"Looking for:\n{MODEL_H5}\n{MODEL_KERAS}")
     st.exception(e)
     st.stop()
 
@@ -105,6 +109,7 @@ if uploaded is not None:
     confidence = float(np.max(probs))
     clinical_type = CATEGORY[predicted_code]
 
+    # -------- Result Section --------
     st.subheader("Prediction Result")
 
     if clinical_type == "Malignant":
@@ -117,6 +122,7 @@ if uploaded is not None:
     st.success(f"Detected Lesion Type: **{predicted_name}**")
     st.info(f"Confidence: **{confidence * 100:.2f}%**")
 
+    # -------- Probability Breakdown --------
     st.subheader("Detailed Probabilities")
     for code, p in sorted(zip(CLASSES, probs), key=lambda t: t[1], reverse=True):
         st.write(f"{CLASS_NAMES[code]} ({CATEGORY[code]}) : {float(p) * 100:.2f}%")
